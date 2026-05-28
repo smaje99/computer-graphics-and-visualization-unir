@@ -13,10 +13,14 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define INITIAL_WINDOW_WIDTH 1100
 #define INITIAL_WINDOW_HEIGHT 820
 #define PI 3.14159265358979323846
+#define QUADRANT_PADDING 18
+#define LABEL_STRIP_HEIGHT 34
+#define FONT_GLYPH_COUNT 96
 
 typedef struct {
     float red;
@@ -29,19 +33,28 @@ typedef struct {
     Window window;
     GLXContext context;
     Atom wm_delete_message;
+    GLuint font_base;
     int width;
     int height;
     bool running;
 } App;
 
 typedef struct {
-    int x;
-    int y;
-    int width;
-    int height;
+    int frame_x;
+    int frame_y;
+    int frame_width;
+    int frame_height;
+    int viewport_x;
+    int viewport_y;
+    int viewport_width;
+    int viewport_height;
     Color background;
-    const double *projection;
+    const char *label;
 } ViewportRegion;
+
+static int maximum_int(int first, int second) {
+    return first > second ? first : second;
+}
 
 static void set_identity(double matrix[16]) {
     int i;
@@ -76,6 +89,7 @@ static void multiply_matrix(const double left[16], const double right[16], doubl
     }
 }
 
+/* Orthographic projection matrix: parallel projection, no vanishing points. */
 static void build_orthographic_matrix(
     double left,
     double right,
@@ -94,6 +108,7 @@ static void build_orthographic_matrix(
     matrix[14] = -(far_plane + near_plane) / (far_plane - near_plane);
 }
 
+/* Perspective frustum matrix used for the symmetric and oblique perspectives. */
 static void build_frustum_matrix(
     double left,
     double right,
@@ -118,37 +133,139 @@ static void build_frustum_matrix(
     matrix[14] = -(2.0 * far_plane * near_plane) / (far_plane - near_plane);
 }
 
-static void build_cabinet_matrix(
-    double left,
-    double right,
-    double bottom,
-    double top,
-    double near_plane,
-    double far_plane,
-    double angle_degrees,
-    double receding_scale,
-    double matrix[16]
-) {
-    const double angle = angle_degrees * PI / 180.0;
+/*
+ * Cabinet projection matrix:
+ * x' = x + k * z * cos(alpha)
+ * y' = y + k * z * sin(alpha)
+ * with k = 0.5 and alpha = 45 degrees.
+ */
+static void build_cabinet_matrix(double aspect_ratio, double matrix[16]) {
+    const double half_height = 3.6;
+    const double half_width = half_height * aspect_ratio;
+    const double angle = 45.0 * PI / 180.0;
+    const double reduction = 0.5;
     double orthographic[16];
     double shear[16];
 
-    build_orthographic_matrix(left, right, bottom, top, near_plane, far_plane, orthographic);
+    build_orthographic_matrix(-half_width, half_width, -half_height, half_height, 1.0, 18.0, orthographic);
     set_identity(shear);
-    shear[8] = receding_scale * cos(angle);
-    shear[9] = receding_scale * sin(angle);
+
+    /* The cube lives at z < 0, so a negative shear keeps depth receding up-right on screen. */
+    shear[8] = -reduction * cos(angle);
+    shear[9] = -reduction * sin(angle);
+
     multiply_matrix(orthographic, shear, matrix);
 }
 
-static void build_projection_set(double orthographic[16], double cabinet[16], double symmetric[16], double oblique[16]) {
-    build_orthographic_matrix(-3.6, 3.6, -3.0, 3.0, 1.0, 18.0, orthographic);
-    build_cabinet_matrix(-4.0, 4.0, -3.0, 3.0, 1.0, 18.0, 45.0, 0.5, cabinet);
-    build_frustum_matrix(-2.2, 2.2, -1.8, 1.8, 3.0, 24.0, symmetric);
-    build_frustum_matrix(-2.7, 1.5, -1.4, 2.2, 3.0, 24.0, oblique);
+static void configure_viewports(const App *app, ViewportRegion viewports[4]) {
+    const int half_width = app->width / 2;
+    const int half_height = app->height / 2;
+    int i;
+
+    viewports[0] = (ViewportRegion) {
+        0,
+        half_height,
+        half_width,
+        app->height - half_height,
+        0,
+        0,
+        0,
+        0,
+        {0.95f, 0.96f, 0.98f},
+        "Ortogonal"
+    };
+    viewports[1] = (ViewportRegion) {
+        half_width,
+        half_height,
+        app->width - half_width,
+        app->height - half_height,
+        0,
+        0,
+        0,
+        0,
+        {0.96f, 0.95f, 0.98f},
+        "Gabinete"
+    };
+    viewports[2] = (ViewportRegion) {
+        0,
+        0,
+        half_width,
+        half_height,
+        0,
+        0,
+        0,
+        0,
+        {0.95f, 0.98f, 0.97f},
+        "Perspectiva simetrica"
+    };
+    viewports[3] = (ViewportRegion) {
+        half_width,
+        0,
+        app->width - half_width,
+        half_height,
+        0,
+        0,
+        0,
+        0,
+        {0.98f, 0.96f, 0.94f},
+        "Perspectiva oblicua"
+    };
+
+    for (i = 0; i < 4; ++i) {
+        viewports[i].viewport_x = viewports[i].frame_x + QUADRANT_PADDING;
+        viewports[i].viewport_y = viewports[i].frame_y + QUADRANT_PADDING;
+        viewports[i].viewport_width = maximum_int(80, viewports[i].frame_width - 2 * QUADRANT_PADDING);
+        viewports[i].viewport_height = maximum_int(
+            80,
+            viewports[i].frame_height - LABEL_STRIP_HEIGHT - 2 * QUADRANT_PADDING
+        );
+    }
+}
+
+static int create_overlay_font(App *app) {
+    XFontStruct *font_info = XLoadQueryFont(app->display, "fixed");
+
+    if (font_info == NULL) {
+        return 0;
+    }
+
+    app->font_base = glGenLists(FONT_GLYPH_COUNT);
+    if (app->font_base == 0U) {
+        XFreeFont(app->display, font_info);
+        return 0;
+    }
+
+    glXUseXFont(font_info->fid, 32, FONT_GLYPH_COUNT, app->font_base);
+    XFreeFont(app->display, font_info);
+    return 1;
+}
+
+static void draw_overlay_text(const App *app, int x, int y, const char *text) {
+    if (app->font_base == 0U || text == NULL) {
+        return;
+    }
+
+    glColor3f(0.12f, 0.14f, 0.18f);
+    glRasterPos2i(x, y);
+    glListBase(app->font_base - 32U);
+    glCallLists((GLsizei) strlen(text), GL_UNSIGNED_BYTE, (const GLubyte *) text);
+}
+
+static void drawLabel(const App *app, int x, int y, const char *text) {
+    draw_overlay_text(app, x, y, text);
+}
+
+static void begin_viewport_3d(const ViewportRegion *region, Color background) {
+    glScissor(region->frame_x, region->frame_y, region->frame_width, region->frame_height);
+    glClearColor(background.red, background.green, background.blue, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    glViewport(region->viewport_x, region->viewport_y, region->viewport_width, region->viewport_height);
+    glScissor(region->viewport_x, region->viewport_y, region->viewport_width, region->viewport_height);
 }
 
 static void draw_axes(double length) {
-    glLineWidth(2.0f);
+    glLineWidth(1.8f);
     glBegin(GL_LINES);
 
     glColor3f(0.84f, 0.18f, 0.16f);
@@ -166,7 +283,7 @@ static void draw_axes(double length) {
     glEnd();
 }
 
-static void draw_cube_faces(void) {
+static void draw_cube(void) {
     glEnable(GL_POLYGON_OFFSET_FILL);
     glPolygonOffset(1.0f, 1.0f);
 
@@ -211,11 +328,9 @@ static void draw_cube_faces(void) {
     glEnd();
 
     glDisable(GL_POLYGON_OFFSET_FILL);
-}
 
-static void draw_cube_edges(void) {
     glColor3f(0.05f, 0.08f, 0.12f);
-    glLineWidth(2.5f);
+    glLineWidth(2.3f);
     glBegin(GL_LINES);
 
     glVertex3d(-1.0, -1.0, -1.0);
@@ -248,13 +363,139 @@ static void draw_cube_edges(void) {
     glEnd();
 }
 
-static void draw_scene_geometry(void) {
-    draw_axes(2.3);
-    draw_cube_faces();
-    draw_cube_edges();
+static void draw_scene(void) {
+    draw_axes(1.8);
+    draw_cube();
 }
 
-static void draw_overlay_dividers(const App *app) {
+static void drawOrthogonalView(const ViewportRegion *region) {
+    double projection[16];
+    const double aspect_ratio = (double) region->viewport_width / (double) region->viewport_height;
+    const double half_height = 3.3;
+    const double half_width = half_height * aspect_ratio;
+
+    begin_viewport_3d(region, region->background);
+
+    build_orthographic_matrix(-half_width, half_width, -half_height, half_height, 1.0, 18.0, projection);
+
+    glMatrixMode(GL_PROJECTION);
+    glPushMatrix();
+    glLoadMatrixd(projection);
+
+    glMatrixMode(GL_MODELVIEW);
+    glPushMatrix();
+    glLoadIdentity();
+
+    /* Isometric-like pose: still parallel projection, but several faces are visible. */
+    glTranslated(0.0, 0.0, -8.4);
+    glRotated(35.264, 1.0, 0.0, 0.0);
+    glRotated(-45.0, 0.0, 1.0, 0.0);
+
+    draw_scene();
+
+    glPopMatrix();
+    glMatrixMode(GL_PROJECTION);
+    glPopMatrix();
+    glMatrixMode(GL_MODELVIEW);
+}
+
+static void drawCabinetView(const ViewportRegion *region) {
+    double projection[16];
+    const double aspect_ratio = (double) region->viewport_width / (double) region->viewport_height;
+
+    begin_viewport_3d(region, region->background);
+    build_cabinet_matrix(aspect_ratio, projection);
+
+    glMatrixMode(GL_PROJECTION);
+    glPushMatrix();
+    glLoadMatrixd(projection);
+
+    glMatrixMode(GL_MODELVIEW);
+    glPushMatrix();
+    glLoadIdentity();
+
+    /*
+     * Frontal pose: the front face stays in true magnitude and the depth recedes
+     * diagonally only because of the cabinet shear, not because of perspective.
+     */
+    glTranslated(-2.15, -2.15, -6.0);
+
+    draw_scene();
+
+    glPopMatrix();
+    glMatrixMode(GL_PROJECTION);
+    glPopMatrix();
+    glMatrixMode(GL_MODELVIEW);
+}
+
+static void drawSymmetricPerspectiveView(const ViewportRegion *region) {
+    double projection[16];
+    const double aspect_ratio = (double) region->viewport_width / (double) region->viewport_height;
+    const double top = 2.2;
+    const double right = top * aspect_ratio;
+
+    begin_viewport_3d(region, region->background);
+    build_frustum_matrix(-right, right, -top, top, 3.0, 24.0, projection);
+
+    glMatrixMode(GL_PROJECTION);
+    glPushMatrix();
+    glLoadMatrixd(projection);
+
+    glMatrixMode(GL_MODELVIEW);
+    glPushMatrix();
+    glLoadIdentity();
+
+    /* Centered frustum: balanced perspective and symmetric vanishing behavior. */
+    glTranslated(0.0, 0.15, -7.6);
+    glRotated(24.0, 1.0, 0.0, 0.0);
+    glRotated(-32.0, 0.0, 1.0, 0.0);
+
+    draw_scene();
+
+    glPopMatrix();
+    glMatrixMode(GL_PROJECTION);
+    glPopMatrix();
+    glMatrixMode(GL_MODELVIEW);
+}
+
+static void drawObliquePerspectiveView(const ViewportRegion *region) {
+    double projection[16];
+    const double aspect_ratio = (double) region->viewport_width / (double) region->viewport_height;
+    const double top = 2.2;
+    const double right = top * aspect_ratio;
+
+    begin_viewport_3d(region, region->background);
+
+    /*
+     * Off-axis perspective: same eye at the origin, but an asymmetric frustum
+     * shifts the visible volume and changes the perspective result.
+     */
+    build_frustum_matrix(-1.65 * right, 0.35 * right, -1.05 * top, 0.95 * top, 3.0, 24.0, projection);
+
+    glMatrixMode(GL_PROJECTION);
+    glPushMatrix();
+    glLoadMatrixd(projection);
+
+    glMatrixMode(GL_MODELVIEW);
+    glPushMatrix();
+    glLoadIdentity();
+
+    /* Same cube placement as the symmetric case so the projection matrix is the main difference. */
+    glTranslated(0.0, 0.15, -7.6);
+    glRotated(24.0, 1.0, 0.0, 0.0);
+    glRotated(-32.0, 0.0, 1.0, 0.0);
+
+    draw_scene();
+
+    glPopMatrix();
+    glMatrixMode(GL_PROJECTION);
+    glPopMatrix();
+    glMatrixMode(GL_MODELVIEW);
+}
+
+static void draw_overlay(const App *app, const ViewportRegion viewports[4]) {
+    int i;
+
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_SCISSOR_TEST);
 
@@ -275,46 +516,25 @@ static void draw_overlay_dividers(const App *app) {
     glVertex2d(app->width, app->height / 2.0);
     glEnd();
 
+    for (i = 0; i < 4; ++i) {
+        drawLabel(app, viewports[i].frame_x + 12, viewports[i].frame_y + viewports[i].frame_height - 22, viewports[i].label);
+    }
+
     glEnable(GL_DEPTH_TEST);
 }
 
-static void render_viewport(const ViewportRegion *region) {
-    glViewport(region->x, region->y, region->width, region->height);
-    glScissor(region->x, region->y, region->width, region->height);
-    glClearColor(region->background.red, region->background.green, region->background.blue, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+static void render(const App *app) {
+    ViewportRegion viewports[4];
 
-    glMatrixMode(GL_PROJECTION);
-    glLoadMatrixd(region->projection);
-
-    glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
-    glTranslated(0.0, -0.1, -8.0);
-    glRotated(26.0, 1.0, 0.0, 0.0);
-    glRotated(-34.0, 0.0, 1.0, 0.0);
-    glRotated(12.0, 0.0, 0.0, 1.0);
-
-    draw_scene_geometry();
-}
-
-static void render(const App *app, const double orthographic[16], const double cabinet[16], const double symmetric[16], const double oblique[16]) {
-    const int half_width = app->width / 2;
-    const int half_height = app->height / 2;
-    const ViewportRegion viewports[4] = {
-        {0, half_height, half_width, app->height - half_height, {0.95f, 0.96f, 0.98f}, orthographic},
-        {half_width, half_height, app->width - half_width, app->height - half_height, {0.96f, 0.95f, 0.98f}, cabinet},
-        {0, 0, half_width, half_height, {0.95f, 0.98f, 0.97f}, symmetric},
-        {half_width, 0, app->width - half_width, half_height, {0.98f, 0.96f, 0.94f}, oblique}
-    };
-    int i;
-
+    configure_viewports(app, viewports);
     glEnable(GL_SCISSOR_TEST);
 
-    for (i = 0; i < 4; ++i) {
-        render_viewport(&viewports[i]);
-    }
+    drawOrthogonalView(&viewports[0]);
+    drawCabinetView(&viewports[1]);
+    drawSymmetricPerspectiveView(&viewports[2]);
+    drawObliquePerspectiveView(&viewports[3]);
 
-    draw_overlay_dividers(app);
+    draw_overlay(app, viewports);
     glXSwapBuffers(app->display, app->window);
 }
 
@@ -370,7 +590,7 @@ static int create_window(App *app) {
         &attributes
     );
 
-    XStoreName(app->display, app->window, "Trabajo 7 - Proyecciones 3D");
+    XStoreName(app->display, app->window, "Trabajo - Proyecciones 3D");
     app->wm_delete_message = XInternAtom(app->display, "WM_DELETE_WINDOW", False);
     XSetWMProtocols(app->display, app->window, &app->wm_delete_message, 1);
     XMapWindow(app->display, app->window);
@@ -380,6 +600,7 @@ static int create_window(App *app) {
     glDepthFunc(GL_LEQUAL);
     glShadeModel(GL_SMOOTH);
     glDisable(GL_CULL_FACE);
+    create_overlay_font(app);
 
     app->width = INITIAL_WINDOW_WIDTH;
     app->height = INITIAL_WINDOW_HEIGHT;
@@ -396,6 +617,10 @@ static int create_window(App *app) {
 static void destroy_window(App *app) {
     if (app->display == NULL) {
         return;
+    }
+
+    if (app->font_base != 0U) {
+        glDeleteLists(app->font_base, FONT_GLYPH_COUNT);
     }
 
     glXMakeCurrent(app->display, None, NULL);
@@ -431,12 +656,6 @@ static void handle_event(App *app, const XEvent *event) {
 
 int main(void) {
     App app = {0};
-    double orthographic[16];
-    double cabinet[16];
-    double symmetric[16];
-    double oblique[16];
-
-    build_projection_set(orthographic, cabinet, symmetric, oblique);
 
     if (!create_window(&app)) {
         return EXIT_FAILURE;
@@ -449,7 +668,7 @@ int main(void) {
             handle_event(&app, &event);
         }
 
-        render(&app, orthographic, cabinet, symmetric, oblique);
+        render(&app);
     }
 
     destroy_window(&app);
