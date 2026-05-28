@@ -1,21 +1,25 @@
-CC := gcc
-CFLAGS := -std=c11 -Wall -Wextra -pedantic -O2
-LDFLAGS := -lX11 -lGL -lm
-TARGET := solution
-SOURCE := solution.c
-REPORT_DIR := report
-REPORT_TEX := $(REPORT_DIR)/informe.tex
+LAB1_DIR := labs/lab-01-reloj-analogico
+LAB7_DIR := labs/lab-07-proyecciones-3d
+VECTORIAL_DIR := extras/calculo-vectorial-figura-1
 
-.PHONY: all clean report
+.PHONY: all lab1 lab7 vectorial reports clean
 
-all: $(TARGET)
+all: lab1 lab7 vectorial
 
-$(TARGET): $(SOURCE)
-	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
+lab1:
+	$(MAKE) -C $(LAB1_DIR)
 
-report:
-	cd $(REPORT_DIR) && pdflatex -interaction=nonstopmode informe.tex
+lab7:
+	$(MAKE) -C $(LAB7_DIR)
+
+vectorial:
+	$(MAKE) -C $(VECTORIAL_DIR)
+
+reports:
+	$(MAKE) -C $(LAB1_DIR) report
+	$(MAKE) -C $(LAB7_DIR) report
 
 clean:
-	rm -f $(TARGET)
-	rm -f $(REPORT_DIR)/*.aux $(REPORT_DIR)/*.fdb_latexmk $(REPORT_DIR)/*.fls $(REPORT_DIR)/*.log $(REPORT_DIR)/*.out $(REPORT_DIR)/*.pdf
+	$(MAKE) -C $(LAB1_DIR) clean
+	$(MAKE) -C $(LAB7_DIR) clean
+	$(MAKE) -C $(VECTORIAL_DIR) clean
