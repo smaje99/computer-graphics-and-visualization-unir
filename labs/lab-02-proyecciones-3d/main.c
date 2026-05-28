@@ -1,5 +1,5 @@
 /*
- * Trabajo 7: cuatro proyecciones 3D del mismo cubo en una sola ventana.
+ * Trabajo: cuatro proyecciones 3D del mismo cubo en una sola ventana.
  * La escena usa OpenGL clásico sobre X11/GLX y mantiene el ojo en (0,0,0).
  */
 

@@ -1,4 +1,4 @@
-# Trabajo 7: Proyecciones 3D
+# Trabajo: Proyecciones 3D
 
 Ventana OpenGL con cuatro vistas simultáneas del mismo cubo, cada una con una matriz de proyección distinta y sin mover el ojo de la posición por defecto `(0, 0, 0)`.
 
@@ -34,7 +34,7 @@ make report
 Desde la raíz del monorepo:
 
 ```bash
-make lab7
+make lab2
 make reports
 ```
 

@@ -5,7 +5,7 @@ Monorepo de la asignatura de UNIR organizado por prácticas y ampliaciones técn
 ## Estructura
 
 - `labs/lab-01-reloj-analogico/`: práctica histórica del reloj analógico estático.
-- `labs/lab-07-proyecciones-3d/`: Trabajo 7 con cuatro proyecciones simultáneas de un mismo cubo.
+- `labs/lab-02-proyecciones-3d/`: Trabajo con cuatro proyecciones simultáneas de un mismo cubo.
 - `extras/calculo-vectorial-figura-1/`: rescate independiente de la Figura 1 del laboratorio de Cálculo Vectorial.
 
 ## Requisitos
@@ -34,7 +34,7 @@ Compilar proyectos concretos:
 
 ```bash
 make lab1
-make lab7
+make lab2
 make vectorial
 ```
 
@@ -52,6 +52,6 @@ make clean
 
 ## Notas
 
-- El trabajo principal entregable está en `labs/lab-07-proyecciones-3d/` y concentra toda la implementación en `main.c`, como exige el enunciado.
-- El informe del Trabajo 7 se mantiene en LaTeX y se genera como PDF final del repositorio, aunque la nota original del enunciado pedía formatos editables.
-- El extra de cálculo vectorial queda aislado para no contaminar la entrega del Trabajo 7.
+- El trabajo principal entregable está en `labs/lab-02-proyecciones-3d/` y concentra toda la implementación en `main.c`, como exige el enunciado.
+- El informe del trabajo se mantiene en LaTeX y se genera como PDF final del repositorio, aunque la nota original del enunciado pedía formatos editables.
+- El extra de cálculo vectorial queda aislado para no contaminar la entrega del trabajo.
