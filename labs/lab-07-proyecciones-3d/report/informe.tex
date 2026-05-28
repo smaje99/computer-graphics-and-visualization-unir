@@ -1,24 +1,63 @@
 \documentclass[12pt,a4paper]{article}
 
+% ------------------------------------------------------------
+% Configuración general
+% ------------------------------------------------------------
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
-\usepackage[spanish]{babel}
-\usepackage[margin=2.2cm]{geometry}
+\usepackage[spanish,es-tabla]{babel}
+\usepackage[a4paper,margin=2.5cm]{geometry}
 \usepackage{setspace}
-\onehalfspacing
+\setstretch{1.18}
 \usepackage[sfdefault]{carlito}
 \usepackage{graphicx}
-\usepackage{hyperref}
+\usepackage{float}
+\usepackage{caption}
 \usepackage{xcolor}
 \usepackage{amsmath}
 \usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage{hyperref}
 
-\hypersetup{colorlinks=true, linkcolor=blue, urlcolor=blue, citecolor=blue}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!50!black,
+    urlcolor=blue!50!black,
+    citecolor=blue!50!black,
+    pdftitle={Trabajo: Proyecciones 3D},
+    pdfauthor={Sergio Andrés Majé Franco}
+}
+
+\definecolor{codebg}{RGB}{248,248,248}
+\definecolor{codeframe}{RGB}{210,210,210}
+\definecolor{codecomment}{RGB}{70,120,70}
+\definecolor{codekeyword}{RGB}{40,70,150}
+
+\lstdefinestyle{cstyle}{
+    language=C,
+    basicstyle=\ttfamily\footnotesize,
+    keywordstyle=\color{codekeyword}\bfseries,
+    commentstyle=\color{codecomment},
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    numbersep=6pt,
+    backgroundcolor=\color{codebg},
+    frame=single,
+    rulecolor=\color{codeframe},
+    breaklines=true,
+    tabsize=4,
+    showstringspaces=false,
+    captionpos=b
+}
+
+\setlist[itemize]{leftmargin=*, itemsep=0.2em, topsep=0.25em}
+\setlist[enumerate]{leftmargin=*, itemsep=0.2em, topsep=0.25em}
 
 \newcommand{\Universidad}{Universidad Internacional de La Rioja (UNIR)}
 \newcommand{\Asignatura}{Informática Gráfica y Visualización}
 
-\title{\textbf{Trabajo 7: Proyecciones 3D}\\Cuatro vistas de un mismo cubo en OpenGL}
+\title{\textbf{Trabajo: Proyecciones 3D}\\Cuatro vistas de un mismo cubo en OpenGL}
 \author{Sergio Andrés Majé Franco}
 \date{\Asignatura \\ \Universidad \\ 28 de mayo de 2026}
 
@@ -29,28 +68,42 @@
 \newpage
 
 \section{Introducción}
-El Trabajo 7 pide construir una ventana OpenGL con cuatro vistas simultáneas del mismo cubo. Cada vista debe usar una proyección distinta: ortográfica, gabinete, perspectiva simétrica y perspectiva oblicua. Además, el enunciado impone una restricción importante: no se puede mover el ojo desde la posición por defecto $(0,0,0)$, por lo que no se permite utilizar \texttt{gluLookAt()} ni mecanismos equivalentes.
 
-La solución desarrollada mantiene esa restricción de forma estricta. El cubo es el único objeto que se transforma geométricamente para quedar delante del observador. En consecuencia, la comparación entre proyecciones se apoya en matrices de proyección distintas y en transformaciones de modelo cuidadosamente elegidas para que cada familia de proyección resulte legible sin desplazar la posición del ojo.
+El presente documento describe la solución desarrollada para el trabajo \textit{Proyecciones 3D}. El informe se concentra en explicar la implementación realizada en OpenGL, presentar la captura del programa en ejecución y responder las preguntas solicitadas en la entrega. La redacción se mantiene enfocada en el resultado construido, sin extenderse hacia una investigación teórica externa al alcance de la actividad.
 
-\section{Planteamiento geométrico}
-\subsection{Escena común}
-Los cuatro cuadrantes representan exactamente la misma escena:
+\section{Alcance de la entrega}
 
-\begin{itemize}[leftmargin=*]
-    \item un cubo centrado en el origen del modelo;
-    \item ejes cartesianos simples para dar referencia espacial;
-    \item una traslación del objeto sobre el eje $-Z$ para situarlo delante del ojo;
-    \item una pose del cubo adaptada al tipo de proyección cuando resulta necesario para que esa vista sea reconocible.
-\end{itemize}
+La actividad solicita una ventana OpenGL con cuatro vistas de un mismo cubo: proyección ortogonal, proyección gabinete, proyección perspectiva simétrica y proyección perspectiva oblicua. Además, el enunciado establece que la proyección debe realizarse sin mover el ojo desde la posición por defecto $(0,0,0)$, por lo que no se debe utilizar \texttt{gluLookAt()} ni una función equivalente de cámara.
 
-La escena base siempre es el mismo cubo centrado en el origen del modelo, con caras coloreadas y ejes de referencia. Sin embargo, la transformación de modelo no es idéntica en todos los cuadrantes. En la vista ortogonal se usa una pose axonométrica para que se aprecien tres caras manteniendo el paralelismo. En la vista gabinete se deja el cubo frontal para que la cara delantera conserve magnitud y sea la cizalla la que produzca la profundidad oblicua. En las dos perspectivas se mantiene prácticamente la misma colocación del cubo, de modo que la diferencia entre ambas la produzca sobre todo el \emph{frustum}.
+La solución se entrega mediante un archivo \texttt{main.c}, en el que se implementa la ventana, la división en cuadrantes, las matrices de proyección y el dibujo de la escena. Este informe funciona como documento explicativo de la implementación y como evidencia visual del resultado obtenido.
 
-\subsection{Matrices de proyección}
-Las matrices se codifican de forma explícita en \texttt{main.c}. No se delega la construcción de la cámara a utilidades externas. Las cuatro familias empleadas son las siguientes:
+\section{Descripción general de la solución}
 
-\paragraph{Proyección ortográfica.}
-Se utiliza la forma clásica de la matriz ortográfica:
+El programa utiliza OpenGL clásico sobre X11/GLX. La ventana principal se divide en cuatro cuadrantes y cada cuadrante renderiza el mismo cubo con una configuración de proyección diferente. La geometría de la escena se mantiene común: un cubo con caras coloreadas, aristas resaltadas y ejes de referencia. Esta decisión permite que la comparación se centre en el efecto de las proyecciones y no en variaciones del objeto.
+
+La estructura del código separa tres responsabilidades principales. Primero, se crea la ventana y el contexto gráfico. Luego, se definen funciones para construir matrices ortográficas, matrices de \emph{frustum} y una matriz de gabinete basada en cizalla. Finalmente, cada vista configura su propio \texttt{viewport}, carga su matriz de proyección y dibuja la escena común.
+
+\begin{lstlisting}[style=cstyle,caption={Renderizado independiente de las cuatro vistas.},label={lst:render}]
+configure_viewports(app, viewports);
+glEnable(GL_SCISSOR_TEST);
+
+drawOrthogonalView(&viewports[0]);
+drawCabinetView(&viewports[1]);
+drawSymmetricPerspectiveView(&viewports[2]);
+drawObliquePerspectiveView(&viewports[3]);
+
+draw_overlay(app, viewports);
+\end{lstlisting}
+
+El uso de funciones separadas facilita la revisión técnica, ya que cada proyección puede verificarse de manera aislada. También evita que la matriz de una vista afecte a las demás, debido a que cada cuadrante reinicia explícitamente las matrices de proyección y de modelo antes de dibujar.
+
+\section{Implementación de las proyecciones}
+
+\subsection{Proyección ortogonal}
+
+La vista ortogonal se implementa mediante una matriz ortográfica. En esta proyección, los rayos proyectantes son paralelos y, por tanto, las aristas paralelas del cubo se conservan paralelas en la imagen final. Para que la figura sea más legible, el cubo se rota con una pose similar a una vista axonométrica, pero la proyección sigue siendo paralela y no genera puntos de fuga.
+
+La matriz usada corresponde a la forma general de una proyección ortográfica:
 
 \[
 O =
@@ -62,161 +115,145 @@ O =
 \end{bmatrix}
 \]
 
-Su efecto visual es conservar paralelas todas las aristas del cubo, sin convergencia hacia puntos de fuga.
+\subsection{Proyección gabinete}
 
-\paragraph{Proyección gabinete.}
-La vista gabinete se construye combinando una proyección ortográfica con una cizalla sobre el eje de profundidad. En el código se implementa como el producto $O \cdot S$, donde $S$ reproduce la forma conceptual
+La proyección gabinete se desarrolló como una proyección oblicua paralela. La intención es conservar la cara frontal del cubo en verdadera magnitud o con una deformación mínima, mientras la profundidad se representa mediante una dirección diagonal reducida. Para lograrlo, se combina una proyección ortográfica con una matriz de cizalla sobre la profundidad.
 
-\[
-x' = x + k z \cos(\alpha), \qquad y' = y + k z \sin(\alpha)
-\]
-
-con $k = 0.5$ y $\alpha = 45^\circ$. Dado que el cubo se sitúa delante del observador sobre $z < 0$, la cizalla se ajusta de signo para que la profundidad retroceda visualmente en diagonal sobre la imagen. La cara frontal se deja prácticamente en verdadera magnitud, que es precisamente lo que distingue al gabinete de una perspectiva.
-
-\paragraph{Perspectiva simétrica.}
-Se usa una matriz de \emph{frustum} centrada:
+La transformación conceptual aplicada es:
 
 \[
-P =
-\begin{bmatrix}
-\frac{2n}{r-l} & 0 & \frac{r+l}{r-l} & 0 \\
-0 & \frac{2n}{t-b} & \frac{t+b}{t-b} & 0 \\
-0 & 0 & -\frac{f+n}{f-n} & -\frac{2fn}{f-n} \\
-0 & 0 & -1 & 0
-\end{bmatrix}
+    x' = x + k z \cos(\alpha), \qquad
+    y' = y + k z \sin(\alpha)
 \]
 
-En este caso se cumple $l = -r$ y $b = -t$, de modo que el volumen de visión es simétrico.
+En la implementación se utiliza $k = 0.5$ y $\alpha = 45^\circ$. El valor $k=0.5$ corresponde a la reducción típica de una proyección gabinete, lo que evita que la profundidad se vea exagerada. Como el cubo se ubica delante del observador sobre valores negativos de $z$, el signo de la cizalla se ajusta para que la profundidad retroceda visualmente en diagonal.
 
-\paragraph{Perspectiva oblicua asimétrica.}
-Para la cuarta vista se reaprovecha la misma familia de matriz de \emph{frustum}, pero con límites laterales y verticales no simétricos. En particular, el código fija valores con $l \neq -r$ y $b \neq -t$, de modo que el volumen visible queda desplazado respecto al eje óptico. Así aparece una perspectiva \emph{off-axis}, claramente diferente de la simétrica, sin mover el ojo.
+\subsection{Perspectiva simétrica}
 
-\section{Implementación}
-\subsection{Estructura del programa}
-Todo el trabajo queda contenido en \texttt{main.c}, como pedía el enunciado. La lógica principal se divide en cuatro bloques:
+La perspectiva simétrica se implementa con una matriz de \emph{frustum} centrada. En esta vista se cumple que los límites laterales y verticales del volumen de visión son simétricos, es decir, $l=-r$ y $b=-t$. De esta manera, el volumen de proyección queda alineado con el eje de visión.
 
-\begin{itemize}[leftmargin=*]
-    \item creación de la ventana X11 y del contexto GLX;
-    \item construcción explícita de matrices ortográficas, de cizalla y de \emph{frustum};
-    \item renderizado del cubo en cuatro \emph{viewports} mediante funciones separadas por proyección;
-    \item gestión de etiquetas, redimensionado y eventos de cierre.
-\end{itemize}
+El cubo no se visualiza mediante movimiento de cámara. En cambio, se traslada como objeto hacia el eje $-Z$ para quedar dentro del volumen visible. Esta decisión respeta la restricción de mantener el ojo en $(0,0,0)$ y permite que la reducción por profundidad sea consecuencia de la matriz de perspectiva.
 
-El uso de \emph{viewports} permite reutilizar la misma geometría sin duplicar escenas. Cada cuadrante limpia su propio fondo, configura su propia proyección, reinicia la matriz \texttt{GL\_MODELVIEW} y dibuja el cubo dentro de un sub-área con márgenes. Después se dibujan divisores y etiquetas en \emph{overlay} para reforzar la lectura visual en la captura.
+\subsection{Perspectiva oblicua}
 
-\subsection{Funciones de vista}
-Para mantener la implementación defendible y evitar contaminación entre matrices, el código se organiza con una función por vista:
+La perspectiva oblicua se resolvió como una perspectiva \emph{off-axis}. A diferencia de la perspectiva simétrica, esta vista usa un \emph{frustum} asimétrico, con límites que no cumplen $l=-r$ o $b=-t$. El resultado es una perspectiva desplazada respecto al eje óptico, sin necesidad de mover el ojo ni de usar \texttt{gluLookAt()}.
 
-\begin{itemize}[leftmargin=*]
-    \item \texttt{drawOrthogonalView()}, que usa \texttt{glOrtho} y una pose axonométrica;
-    \item \texttt{drawCabinetView()}, que usa una matriz ortográfica compuesta con cizalla;
-    \item \texttt{drawSymmetricPerspectiveView()}, que usa un \emph{frustum} centrado;
-    \item \texttt{drawObliquePerspectiveView()}, que usa un \emph{frustum} asimétrico u \emph{off-axis}.
-\end{itemize}
+La diferencia principal frente a la perspectiva simétrica está en la matriz de proyección, no en crear otro cubo ni en cambiar arbitrariamente la cámara. Por eso, el código conserva una colocación similar del objeto en ambas vistas de perspectiva y hace que el contraste dependa del volumen de visión.
 
-Cada una de esas funciones llama a \texttt{glViewport()}, carga su proyección, reinicia \texttt{GL\_MODELVIEW} con \texttt{glLoadIdentity()} y aplica únicamente transformaciones del objeto. El uso de \texttt{glPushMatrix()} y \texttt{glPopMatrix()} evita que una vista contamine a la siguiente.
+\begin{lstlisting}[style=cstyle,caption={Diferencia entre frustum simétrico y frustum asimétrico.},label={lst:frustum}]
+/* Perspectiva simetrica: frustum centrado */
+build_frustum_matrix(-right, right, -top, top, 3.0, 24.0, projection);
 
-\subsection{Decisiones de representación}
-Se han tomado varias decisiones para que la comparación entre proyecciones resulte clara:
+/* Perspectiva oblicua: frustum asimetrico u off-axis */
+build_frustum_matrix(-1.65 * right, 0.35 * right,
+                     -1.05 * top, 0.95 * top,
+                     3.0, 24.0, projection);
+\end{lstlisting}
 
-\begin{itemize}[leftmargin=*]
-    \item las caras del cubo están coloreadas para distinguir su orientación;
-    \item las aristas se dibujan encima de las caras para reforzar la percepción de volumen;
-    \item los ejes se añaden como referencia espacial mínima;
-    \item cada cuadrante usa un fondo ligeramente distinto, pero muy cercano, para separar visualmente las vistas sin distraer;
-    \item las vistas perspectiva simétrica y perspectiva oblicua comparten casi la misma pose del cubo, para que la diferencia se deba al \emph{frustum} y no a una simple rotación extra.
-\end{itemize}
+\section{Evidencia de ejecución}
 
-\subsection{Restricción sobre la posición del ojo}
-El código no usa \texttt{gluLookAt()} ni ninguna rutina equivalente de cámara. La escena parte siempre del ojo por defecto y el cubo es el que se traslada hacia el eje $-Z$. Esto responde de forma directa a la condición explícita del trabajo.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.96\textwidth]{../captures/proyecciones-3d-review-final.png}
+    \caption{Ventana principal del programa con cuatro vistas del mismo cubo.}
+    \label{fig:proyecciones}
+\end{figure}
 
-\section{Resultado}
-\subsection{Captura del programa}
-\IfFileExists{../captures/proyecciones-3d.png}{%
-    \begin{center}
-    \includegraphics[width=0.96\textwidth]{../captures/proyecciones-3d.png}
-    \end{center}
-}{%
-    \fcolorbox{black}{gray!10}{%
-        \parbox{0.9\textwidth}{%
-            Captura pendiente de incorporar en \texttt{captures/proyecciones-3d.png}.
-        }%
-    }%
-}
+La Figura~\ref{fig:proyecciones} muestra la ventana principal del programa. En el cuadrante superior izquierdo se observa la proyección ortogonal; en el superior derecho, la proyección gabinete; en el inferior izquierdo, la perspectiva simétrica; y en el inferior derecho, la perspectiva oblicua. Las etiquetas permiten identificar cada caso y los colores del cubo ayudan a comparar el comportamiento espacial de las caras en las cuatro vistas.
 
-\smallskip
+La vista ortogonal conserva el paralelismo de las aristas. La gabinete mantiene una cara frontal dominante y desplaza la profundidad en diagonal. La perspectiva simétrica muestra una proyección centrada, mientras que la perspectiva oblicua desplaza el volumen visible mediante un \emph{frustum} asimétrico. Aunque las dos perspectivas conservan una pose cercana del cubo, su diferencia se encuentra en la configuración del volumen de proyección.
 
-\textbf{Figura 1.} Ventana del Trabajo 7 con las cuatro proyecciones simultáneas.
+\section{Visualización complementaria: hiperboloide de una hoja}
 
-\subsection{Funcionamiento}
-\textbf{¿Funciona bien tu programa?}
+Además de la ventana principal con las cuatro proyecciones del cubo, se documenta una visualización complementaria desarrollada dentro del laboratorio. Esta sección tiene como finalidad dejar evidencia de la aplicación de OpenGL en una geometría tridimensional más compleja que un sólido básico, reutilizando la lógica de ejes, representación espacial y construcción gráfica de una escena 3D.
 
-Sí. El programa abre una única ventana OpenGL y muestra de forma estable las cuatro vistas solicitadas. La escena se mantiene coherente durante el redimensionado y cada cuadrante presenta un comportamiento visual compatible con la familia de proyección que le corresponde. La ortográfica mantiene el paralelismo, la gabinete conserva una cara frontal clara y profundidad oblicua reducida, la perspectiva simétrica produce convergencia centrada y la perspectiva oblicua desplaza el volumen de visión de forma reconocible.
-
-\section{Limitaciones y fallos detectados}
-\textbf{¿Qué fallos existen?}
-
-La solución cumple el objetivo del trabajo, pero conviene dejar documentadas varias limitaciones:
-
-\begin{itemize}[leftmargin=*]
-    \item depende de un entorno gráfico con X11/GLX y OpenGL clásico, por lo que no es una solución nativa para Windows sin WSL o sin un servidor X;
-    \item el rotulado usa texto bitmap sencillo generado con \texttt{glXUseXFont}, suficiente para la práctica, pero poco flexible desde el punto de vista tipográfico;
-    \item los valores numéricos elegidos para cada matriz se han ajustado manualmente para priorizar legibilidad sobre generalidad;
-    \item la perspectiva oblicua se resuelve como un \emph{frustum} asimétrico, que es una interpretación defendible del requisito, aunque el enunciado no fija una parametrización única para esa cuarta proyección.
-\end{itemize}
-
-\section{Rescate de Cálculo Vectorial}
-Como ampliación del repositorio se ha incorporado un proyecto independiente. Su ubicación es \texttt{extras/calculo-vectorial-figura-1/}. Este extra no forma parte de la entrega principal del Trabajo 7, pero recupera la Figura 1 del laboratorio previo de Cálculo Vectorial dentro del mismo entorno técnico de OpenGL clásico.
-
-La superficie representada viene dada por la ecuación:
+La superficie representada corresponde a un hiperboloide de una hoja definido por la ecuación:
 
 \[
-\frac{x^2}{9} + \frac{(y-3)^2}{4} - \frac{(z+1)^2}{9} = 1
+    \frac{x^2}{4} + \frac{(y-3)^2}{9} - \frac{(z+1)^2}{16} = 1
 \]
 
-Se trata de un hiperboloide de una hoja centrado en $(0, 3, -1)$ y orientado a lo largo del eje $z$. En el programa se parametriza mediante funciones hiperbólicas:
+Esta expresión describe una superficie cuadrática centrada en $(0,3,-1)$. Para su visualización se emplea una representación alámbrica, ya que la malla permite observar la continuidad de la superficie y su curvatura sin ocultar la estructura geométrica. En términos prácticos, este tipo de representación es útil para comprobar cómo una parametrización matemática puede transformarse en coordenadas renderizables dentro de una escena OpenGL.
+
+Una forma conveniente de generar la superficie consiste en parametrizarla mediante funciones hiperbólicas:
 
 \[
-x = 3 \cosh(v) \cos(u), \quad
-y = 3 + 2 \cosh(v) \sin(u), \quad
-z = -1 + 3 \sinh(v)
+    x = 2\cosh(v)\cos(u), \qquad
+    y = 3 + 3\cosh(v)\sin(u), \qquad
+    z = -1 + 4\sinh(v)
 \]
 
-con $u \in [0, 2\pi]$ y un rango acotado de $v$ para muestrear una banda visible de la superficie.
+con $u$ recorriendo el ángulo alrededor del eje de la superficie y $v$ controlando la apertura de la malla. Al acotar el intervalo de $v$, se obtiene una porción visible y manejable de la superficie, evitando que la figura crezca de forma excesiva dentro de la ventana.
 
-Desde el punto de vista de OpenGL, la construcción se ha hecho en varias etapas concretas. Primero se fija una proyección perspectiva sencilla mediante una matriz de \emph{frustum}, suficiente para dar profundidad a la escena sin introducir una cámara compleja. Después, en la matriz de modelo se aplica una traslación para separar la superficie del ojo y dos rotaciones fijas para mostrar simultáneamente su apertura, su cintura central y su desplazamiento respecto del origen global.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.82\textwidth]{../../../extras/calculo-vectorial-figura-1/captures/figura1.png}
+    \caption{Representación alámbrica de un hiperboloide de una hoja en OpenGL.}
+    \label{fig:hiperboloide}
+\end{figure}
 
-La geometría no se almacena como una malla indexada, sino que se genera de forma procedural en tiempo de renderizado. El programa recorre una rejilla paramétrica discreta con dos familias de curvas:
+La Figura~\ref{fig:hiperboloide} complementa la entrega al mostrar que el laboratorio no se limita al cubo empleado para comparar proyecciones, sino que también permite representar superficies matemáticas mediante mallas paramétricas. Esta sección refuerza la relación entre geometría, cálculo vectorial y visualización computacional, que es uno de los aspectos prácticos de la informática gráfica.
 
-\begin{itemize}[leftmargin=*]
-    \item curvas de parámetro $v$ constante, que producen anillos elípticos alrededor del eje de la superficie;
-    \item curvas de parámetro $u$ constante, que producen generatrices que ascienden y descienden por el hiperboloide.
+
+\section{Verificación de requisitos}
+
+\begin{table}[H]
+\centering
+\caption{Relación entre el requisito de la actividad y la solución implementada.}
+\label{tab:requisitos}
+\begin{tabular}{p{0.36\textwidth}p{0.52\textwidth}}
+\toprule
+\textbf{Requisito} & \textbf{Cumplimiento} \\
+\midrule
+Ventana con cuatro vistas & La ventana se divide en cuatro cuadrantes mediante \texttt{glViewport()} y \texttt{glScissor()}. \\
+Mismo cubo en todas las vistas & La escena se dibuja desde una función común que reutiliza el cubo, las aristas y los ejes. \\
+Proyección ortogonal & Se usa una matriz ortográfica y una pose axonométrica del objeto. \\
+Proyección gabinete & Se combina una matriz ortográfica con una cizalla de profundidad reducida. \\
+Perspectiva simétrica & Se usa un \emph{frustum} centrado con límites simétricos. \\
+Perspectiva oblicua & Se usa un \emph{frustum} asimétrico para obtener una perspectiva \emph{off-axis}. \\
+No mover el ojo & No se usa \texttt{gluLookAt()}; el objeto se traslada hacia $-Z$ dentro de la escena. \\
+Archivo principal único & La implementación se concentra en \texttt{main.c}. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Funcionamiento del programa}
+
+\subsection{¿Funciona bien el programa?}
+
+Sí. El programa cumple el objetivo de la actividad, porque abre una única ventana OpenGL y muestra cuatro vistas simultáneas del mismo cubo. Cada cuadrante tiene una etiqueta propia y aplica una configuración de proyección distinta. Además, la solución evita el uso de \texttt{gluLookAt()} y mantiene el ojo en la posición por defecto, usando transformaciones del objeto y matrices de proyección para construir la escena.
+
+Desde el resultado visual, la vista ortogonal es la más directa de validar porque mantiene las aristas paralelas. La vista gabinete representa la profundidad mediante una cizalla oblicua con reducción. La perspectiva simétrica se apoya en un \emph{frustum} centrado, y la perspectiva oblicua se diferencia mediante un \emph{frustum} asimétrico. En conjunto, el programa permite comparar las cuatro formas de proyección solicitadas sobre una misma geometría.
+
+\subsection{¿Qué fallos existen?}
+
+No se identifican fallos funcionales que impidan cumplir la actividad. Sin embargo, se reconocen algunas limitaciones propias de la implementación:
+
+\begin{itemize}
+    \item El programa depende de un entorno compatible con X11/GLX y OpenGL clásico, por lo que su ejecución directa está orientada a sistemas que soporten ese entorno gráfico.
+    \item Las etiquetas se dibujan con una fuente bitmap sencilla mediante \texttt{glXUseXFont}; es suficiente para la práctica, pero no busca una presentación tipográfica avanzada.
+    \item Los parámetros de escala, traslación y amplitud del \emph{frustum} fueron ajustados manualmente para priorizar que las cuatro vistas se observaran completas y centradas.
+    \item La diferencia entre la perspectiva simétrica y la perspectiva oblicua es moderada para no recortar el cubo dentro del cuadrante. Puede exagerarse aumentando la asimetría del \emph{frustum}, aunque eso reduciría la estabilidad visual de la captura.
 \end{itemize}
 
-Cada punto de esa rejilla se evalúa sustituyendo $(u,v)$ en la parametrización anterior y enviando el resultado a OpenGL con \texttt{glVertex3d}. Para hacer visible la estructura matemática, se usan \texttt{GL\_LINE\_STRIP} sucesivos en lugar de polígonos rellenos. Eso da lugar a una malla alámbrica donde se aprecia bien la doble curvatura de la superficie y su carácter reglado en sentido visual.
-
-Además, se dibujan ejes cartesianos con colores distintos antes de la malla. Esos ejes ayudan a leer que el hiperboloide rescatado no está centrado en el origen, sino trasladado al entorno de $(0,3,-1)$. En conjunto, esta implementación prioriza claridad geométrica y ligereza de código frente a una representación sombreada más costosa.
-
-\IfFileExists{../../../extras/calculo-vectorial-figura-1/captures/figura1.png}{%
-    \begin{center}
-    \includegraphics[width=0.72\textwidth]{../../../extras/calculo-vectorial-figura-1/captures/figura1.png}
-    \end{center}
-}{}
-
-\smallskip
-
- \textbf{Figura 2.} Hiperboloide de una hoja rescatado de Cálculo Vectorial.
-
-\smallskip
-
-Este rescate aporta valor al repositorio porque reutiliza la misma infraestructura gráfica de la asignatura para representar otra superficie relevante, pero sin mezclarla con la práctica principal.
+Estas limitaciones no contradicen el enunciado. Más bien, delimitan el alcance de una solución académica enfocada en demostrar las cuatro proyecciones solicitadas de forma clara y ejecutable.
 
 \section{Conclusiones}
-El trabajo resuelve de forma directa la comparación entre distintas proyecciones 3D sobre una misma geometría, que es precisamente el foco del Tema 7. La implementación es sencilla de defender porque separa con claridad la escena común de las matrices de proyección y evita dependencias de cámara que contradigan el enunciado.
 
-Además, la nueva estructura del repositorio deja el laboratorio del reloj como antecedente histórico, incorpora el Trabajo 7 como práctica principal y añade un extra matemático reutilizable. El resultado es un monorepo más ordenado, más fácil de mantener y con mejor continuidad técnica entre ejercicios.
+El informe permite evidenciar que la solución desarrollada responde al alcance solicitado: una ventana OpenGL con cuatro vistas de un mismo cubo y con proyecciones diferenciadas. La explicación se centró en el documento, en la captura de ejecución y en las decisiones técnicas principales necesarias para justificar el resultado.
 
-\section{Formato de entrega}
-El informe se mantiene en LaTeX y se genera a PDF dentro del repositorio. Esto deja documentado el trabajo de forma reproducible, aunque la nota del enunciado indicaba expresamente que sólo se aceptaban formatos editables y no PDF.
+La implementación es defendible porque separa la escena común de las matrices de proyección. Esta separación evita interpretar las cuatro vistas como simples rotaciones del cubo y permite explicar por qué cada cuadrante corresponde a una proyección distinta. La restricción sobre la cámara también se cumple, ya que no se mueve el ojo desde $(0,0,0)$ ni se utiliza \texttt{gluLookAt()}.
+
+En términos de entrega, el programa funciona correctamente para el objetivo planteado. Las limitaciones identificadas se relacionan con el entorno gráfico, la sencillez del rotulado y el ajuste manual de parámetros visuales, pero no afectan el cumplimiento central de la actividad.
+
+La visualización del hiperboloide complementa el documento porque amplía la evidencia práctica del laboratorio hacia la representación de superficies paramétricas. Con ello se muestra que la implementación no solo permite comparar proyecciones sobre un cubo, sino también trasladar conceptos matemáticos a una escena 3D renderizada con OpenGL.
+
+\section{Archivos adjuntos}
+
+Junto con este informe se adjunta un archivo comprimido con el código fuente completo de la solución, incluyendo el archivo \texttt{main.c}. Además, se anexa el enlace al repositorio de GitHub que contiene el laboratorio:
+
+\begin{center}
+\href{https://github.com/smaje99/computer-graphics-and-visualization-unir}{https://github.com/smaje99/computer-graphics-and-visualization-unir}
+\end{center}
 
 \end{document}
