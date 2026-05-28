@@ -163,13 +163,30 @@ y = 3 + 2 \cosh(v) \sin(u), \quad
 z = -1 + 3 \sinh(v)
 \]
 
-con $u \in [0, 2\pi]$ y un rango acotado de $v$ para muestrear una banda visible de la superficie. La representación se dibuja como malla alámbrica, lo que reduce complejidad visual y conserva claridad geométrica.
+con $u \in [0, 2\pi]$ y un rango acotado de $v$ para muestrear una banda visible de la superficie.
+
+Desde el punto de vista de OpenGL, la construcción se ha hecho en varias etapas concretas. Primero se fija una proyección perspectiva sencilla mediante una matriz de \emph{frustum}, suficiente para dar profundidad a la escena sin introducir una cámara compleja. Después, en la matriz de modelo se aplica una traslación para separar la superficie del ojo y dos rotaciones fijas para mostrar simultáneamente su apertura, su cintura central y su desplazamiento respecto del origen global.
+
+La geometría no se almacena como una malla indexada, sino que se genera de forma procedural en tiempo de renderizado. El programa recorre una rejilla paramétrica discreta con dos familias de curvas:
+
+\begin{itemize}[leftmargin=*]
+    \item curvas de parámetro $v$ constante, que producen anillos elípticos alrededor del eje de la superficie;
+    \item curvas de parámetro $u$ constante, que producen generatrices que ascienden y descienden por el hiperboloide.
+\end{itemize}
+
+Cada punto de esa rejilla se evalúa sustituyendo $(u,v)$ en la parametrización anterior y enviando el resultado a OpenGL con \texttt{glVertex3d}. Para hacer visible la estructura matemática, se usan \texttt{GL\_LINE\_STRIP} sucesivos en lugar de polígonos rellenos. Eso da lugar a una malla alámbrica donde se aprecia bien la doble curvatura de la superficie y su carácter reglado en sentido visual.
+
+Además, se dibujan ejes cartesianos con colores distintos antes de la malla. Esos ejes ayudan a leer que el hiperboloide rescatado no está centrado en el origen, sino trasladado al entorno de $(0,3,-1)$. En conjunto, esta implementación prioriza claridad geométrica y ligereza de código frente a una representación sombreada más costosa.
 
 \IfFileExists{../../../extras/calculo-vectorial-figura-1/captures/figura1.png}{%
     \begin{center}
     \includegraphics[width=0.72\textwidth]{../../../extras/calculo-vectorial-figura-1/captures/figura1.png}
     \end{center}
 }{}
+
+\smallskip
+
+ \textbf{Figura 2.} Hiperboloide de una hoja rescatado de Cálculo Vectorial.
 
 \smallskip
 
