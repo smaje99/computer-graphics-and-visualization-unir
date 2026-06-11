@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Validador AA de contraste</title>
+
+  <style>
+    :root {
+      color-scheme: light dark;
+
+      --brand: oklch(55% 0.18 245);
+      --danger: oklch(58% 0.20 28);
+
+      --page-bg: light-dark(oklch(98% 0.01 245), oklch(16% 0.02 245));
+      --text: light-dark(oklch(20% 0.02 245), oklch(94% 0.01 245));
+      --muted: light-dark(oklch(58% 0.03 245), oklch(66% 0.02 245));
+
+      --card-bg: color-mix(in oklch, var(--page-bg), var(--brand) 6%);
+      --card-border: color-mix(in oklch, var(--page-bg), var(--brand) 22%);
+      --bad-bg: color-mix(in oklch, var(--danger), white 75%);
+      --bad-text: color-mix(in oklch, var(--danger), white 35%);
+    }
+
+    body {
+      margin: 2rem;
+      font-family: system-ui, sans-serif;
+      background: var(--page-bg);
+      color: var(--text);
+    }
+
+    .card {
+      max-width: 760px;
+      padding: 1.25rem;
+      border: 1px solid var(--card-border);
+      border-radius: 1rem;
+      background: var(--card-bg);
+    }
+
+    .ok {
+      color: var(--text);
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .bad {
+      padding: 0.75rem;
+      border-radius: 0.75rem;
+      background: var(--bad-bg);
+      color: var(--bad-text);
+    }
+
+    .status {
+      display: inline-block;
+      padding: 0.35rem 0.65rem;
+      border-radius: 999px;
+      background: oklch(90% 0.08 145);
+      color: oklch(42% 0.12 145);
+      font-weight: 600;
+    }
+
+    button {
+      margin-top: 1rem;
+      padding: 0.7rem 1rem;
+      border: 0;
+      border-radius: 0.75rem;
+      background: var(--brand);
+      color: white;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    table {
+      margin-top: 1.25rem;
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+
+    th, td {
+      padding: 0.5rem;
+      border-bottom: 1px solid color-mix(in oklch, var(--text), transparent 80%);
+      text-align: left;
+    }
+
+    [data-aa-fail="true"] {
+      outline: 3px solid red;
+      outline-offset: 3px;
+    }
+  </style>
+</head>
+
+<body>
+  <main class="card">
+    <h1>Demo de contraste AA</h1>
+
+    <p class="ok">
+      Este texto debería pasar contraste AA.
+    </p>
+
+    <p class="muted">
+      Este texto secundario puede fallar si el gris queda demasiado suave.
+    </p>
+
+    <p class="bad">
+      Este bloque simula un error de diseño: texto poco contrastado sobre fondo suave.
+    </p>
+
+    <p>
+      Estado del documento:
+      <span class="status">Validado</span>
+    </p>
+
+    <button type="button" onclick="validateAAContrast()">
+      Validar contraste AA
+    </button>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Elemento</th>
+          <th>Contraste</th>
+          <th>Requerido</th>
+          <th>Resultado</th>
+        </tr>
+      </thead>
+      <tbody id="contrast-results"></tbody>
+    </table>
+  </main>
+
+  <script>
+    function parseRgbColor(value) {
+      const match = value.match(
+        /rgba?\(\s*([0-9.]+)\s*,?\s+([0-9.]+)\s*,?\s+([0-9.]+)(?:\s*[,/]\s*([0-9.]+))?\s*\)/
+      );
+
+      if (!match) {
+        throw new Error(`No pude interpretar el color computado: ${value}`);
+      }
+
+      return {
+        r: Number(match[1]),
+        g: Number(match[2]),
+        b: Number(match[3]),
+        a: match[4] === undefined ? 1 : Number(match[4])
+      };
+    }
+
+    function composite(foreground, background) {
+      const alpha = foreground.a + background.a * (1 - foreground.a);
+
+      if (alpha === 0) {
+        return { r: 255, g: 255, b: 255, a: 1 };
+      }
+
+      return {
+        r: (foreground.r * foreground.a + background.r * background.a * (1 - foreground.a)) / alpha,
+        g: (foreground.g * foreground.a + background.g * background.a * (1 - foreground.a)) / alpha,
+        b: (foreground.b * foreground.a + background.b * background.a * (1 - foreground.a)) / alpha,
+        a: alpha
+      };
+    }
+
+    function getEffectiveBackground(element) {
+      const colors = [];
+      let current = element;
+
+      while (current && current.nodeType === Node.ELEMENT_NODE) {
+        const style = getComputedStyle(current);
+        colors.push(parseRgbColor(style.backgroundColor));
+        current = current.parentElement;
+      }
+
+      let result = { r: 255, g: 255, b: 255, a: 1 };
+
+      colors.reverse().forEach(color => {
+        result = composite(color, result);
+      });
+
+      return result;
+    }
+
+    function srgbToLinear(channel) {
+      const value = channel / 255;
+
+      return value <= 0.04045
+        ? value / 12.92
+        : Math.pow((value + 0.055) / 1.055, 2.4);
+    }
+
+    function relativeLuminance(color) {
+      const r = srgbToLinear(color.r);
+      const g = srgbToLinear(color.g);
+      const b = srgbToLinear(color.b);
+
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    }
+
+    function contrastRatio(foreground, background) {
+      const l1 = relativeLuminance(foreground);
+      const l2 = relativeLuminance(background);
+
+      const lighter = Math.max(l1, l2);
+      const darker = Math.min(l1, l2);
+
+      return (lighter + 0.05) / (darker + 0.05);
+    }
+
+    function isLargeText(element) {
+      const style = getComputedStyle(element);
+      const fontSize = parseFloat(style.fontSize);
+      const fontWeight = Number(style.fontWeight) || 400;
+
+      return fontSize >= 24 || (fontSize >= 18.5 && fontWeight >= 700);
+    }
+
+    function hasVisibleText(element) {
+      const text = element.innerText?.trim();
+
+      if (!text) return false;
+
+      const style = getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+
+      return (
+        style.visibility !== "hidden" &&
+        style.display !== "none" &&
+        Number(style.opacity) !== 0 &&
+        rect.width > 0 &&
+        rect.height > 0
+      );
+    }
+
+    function shortSelector(element) {
+      const tag = element.tagName.toLowerCase();
+      const id = element.id ? `#${element.id}` : "";
+      const className = [...element.classList].slice(0, 2).map(c => `.${c}`).join("");
+
+      return `${tag}${id}${className}`;
+    }
+
+    function validateAAContrast() {
+      const rows = document.querySelector("#contrast-results");
+      rows.innerHTML = "";
+
+      document.querySelectorAll("[data-aa-fail]").forEach(element => {
+        element.removeAttribute("data-aa-fail");
+      });
+
+      const elements = [...document.body.querySelectorAll("*")]
+        .filter(hasVisibleText)
+        .filter(element => !["SCRIPT", "STYLE", "TABLE", "THEAD", "TBODY", "TR"].includes(element.tagName));
+
+      for (const element of elements) {
+        const style = getComputedStyle(element);
+
+        const background = getEffectiveBackground(element);
+        const foregroundRaw = parseRgbColor(style.color);
+        const foreground = composite(foregroundRaw, background);
+
+        const ratio = contrastRatio(foreground, background);
+        const large = isLargeText(element);
+        const required = large ? 3 : 4.5;
+        const passes = ratio >= required;
+
+        if (!passes) {
+          element.dataset.aaFail = "true";
+        }
+
+        const tr = document.createElement("tr");
+
+        tr.innerHTML = `
+          <td><code>${shortSelector(element)}</code></td>
+          <td>${ratio.toFixed(2)}:1</td>
+          <td>${required}:1</td>
+          <td>${passes ? "Pasa AA" : "Falla AA"}</td>
+        `;
+
+        rows.appendChild(tr);
+      }
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,24 @@
+
+[
+  {
+    "name": "Botón primario",
+    "fg": "white",
+    "bg": "oklch(55% 0.18 245)",
+    "font_size_px": 16,
+    "font_weight": 700
+  },
+  {
+    "name": "Texto secundario",
+    "fg": "oklch(58% 0.03 245)",
+    "bg": "oklch(98% 0.01 245)",
+    "font_size_px": 16,
+    "font_weight": 400
+  },
+  {
+    "name": "Badge de error",
+    "fg": "oklch(58% 0.20 28)",
+    "bg": "oklch(92% 0.05 28)",
+    "font_size_px": 14,
+    "font_weight": 600
+  }
+]
